@@ -1,7 +1,6 @@
 "use strict";
 
 import fs from 'fs-extra';
-import os from 'os';
 import path from 'path';
 import webpack from 'webpack';
 import util from 'util';
@@ -12,10 +11,9 @@ import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 import { PowerBICustomVisualsWebpackPlugin, LocalizationLoader } from 'powerbi-visuals-webpack-plugin';
 import ConsoleWriter from './ConsoleWriter.js';
 import { resolveCertificate } from "./CertificateTools.js";
-import { readJsonFromRoot, readJsonFromVisual } from './utils.js'
+import { readJsonFromRoot, readJsonFromVisual, safelyParse } from './utils.js'
 
 const config = await readJsonFromRoot('config.json');
-const npmPackage = await readJsonFromRoot('package.json');
 
 const visualPlugin = "visualPlugin.ts";
 const encoding = "utf8";
@@ -48,10 +46,12 @@ export default class WebPackWrap {
         const dropFolder = path.join(visualPackage.basePath, config.build.dropFolder);
         const packageDropFolder = path.join(visualPackage.basePath, config.package.dropFolder);
         const visualPluginFile = path.join(visualPackage.basePath, config.build.precompileFolder, visualPlugin);
-        await fs.ensureDir(tmpFolder);
-        await fs.ensureDir(precompileFolder);
-        await fs.ensureDir(dropFolder);
-        await fs.ensureDir(packageDropFolder);
+        await Promise.all([
+            fs.ensureDir(tmpFolder),
+            fs.ensureDir(precompileFolder),
+            fs.ensureDir(dropFolder),
+            fs.ensureDir(packageDropFolder)
+        ]);
         await fs.createFile(visualPluginFile);
     }
 
@@ -131,17 +131,6 @@ export default class WebPackWrap {
             this.webpackConfig.output.library = `${this.pbiviz.visual.guid}${options.devMode ? "_DEBUG" : ""}`;
             this.webpackConfig.output.libraryTarget = 'var';
         }
-    }
-
-    async getEnvironmentDetails() {
-        const env = {
-            nodeVersion: process.versions.node,
-            osPlatform: await os.platform(),
-            osVersion: await os.version ?? "undefined",
-            osReleaseVersion: await os.release(),
-            toolsVersion: npmPackage.version
-        };
-        return env;
     }
 
     async configureCustomVisualsWebpackPlugin(visualPackage, options, tsconfig) {
@@ -273,13 +262,15 @@ export default class WebPackWrap {
             this.webpackConfig.devtool = options.devtool;
         }
 
-        await this.appendPlugins(options, visualPackage, tsconfig);
-        await this.configureDevServer(visualPackage, options.devServerPort);
-        await this.configureVisualPlugin(options, tsconfig, visualPackage);
-        await this.configureLoaders({
-            fast: options.fast,
-            includeAllLocales: options.allLocales
-        });
+        await Promise.all([
+            this.appendPlugins(options, visualPackage, tsconfig),
+            this.configureDevServer(visualPackage, options.devServerPort),
+            this.configureVisualPlugin(options, tsconfig, visualPackage),
+            this.configureLoaders({
+                fast: options.fast,
+                includeAllLocales: options.allLocales
+            }),
+        ]);
 
         return this.webpackConfig;
     }
@@ -312,14 +303,17 @@ export default class WebPackWrap {
         certificationAudit: false,
         certificationFix: false,
     }) {
-        const tsconfig = await readJsonFromVisual('tsconfig.json');
-        this.pbiviz = await readJsonFromVisual(options.pbivizFile);
+        const [tsconfig, pbiviz] = await Promise.all([
+            readJsonFromVisual('tsconfig.json'),
+            readJsonFromVisual(options.pbivizFile)
+        ]);
+        this.pbiviz = pbiviz;
 
         const capabilitiesPath = this.pbiviz.capabilities;
         visualPackage.pbivizConfig.capabilities = capabilitiesPath;
 
         const dependenciesPath = this.pbiviz.dependencies && path.join(process.cwd(), this.pbiviz.dependencies);
-        const dependenciesFile = fs.existsSync(dependenciesPath) && JSON.parse(fs.readFileSync(dependenciesPath));
+        const dependenciesFile = safelyParse(dependenciesPath);
         visualPackage.pbivizConfig.dependencies = typeof dependenciesFile === 'object' ? dependenciesFile : {};
 
         await WebPackWrap.prepareFoldersAndFiles(visualPackage);

@@ -224,18 +224,12 @@ export async function resolveCertificate() {
     if (!isCertificateValid) {
         await createCertFile();
     }
-    if (await fs.exists(passphrasePath)) {
-        options.passphrase = await fs.readFile(passphrasePath, 'utf8');
-    }
-    if (await fs.exists(keyPath)) {
-        options.key = await fs.readFile(keyPath);
-    }
-    if (await fs.exists(certPath)) {
-        options.cert = await fs.readFile(certPath);
-    }
-    if (await fs.exists(pfxPath)) {
-        options.pfx = await fs.readFile(pfxPath);
-    }
+    await Promise.all([
+        await fs.exists(passphrasePath) && fs.readFile(passphrasePath, 'utf8').then(pass => options.passphrase = pass),
+        await fs.exists(keyPath) && fs.readFile(keyPath).then(key => options.key = key),
+        await fs.exists(certPath) && fs.readFile(certPath).then(cert => options.cert = cert),
+        await fs.exists(pfxPath) && fs.readFile(pfxPath).then(pfx => options.pfx = pfx)
+    ])
     return options;
 }
 
@@ -282,5 +276,5 @@ const getRandomValues = () => {
 
 const savePassphrase = async (passphrase) => {
     const { passphrasePath } = secretFilesPath;
-    await fs.writeFileSync(passphrasePath, passphrase);
+    await fs.writeFile(passphrasePath, passphrase);
 }

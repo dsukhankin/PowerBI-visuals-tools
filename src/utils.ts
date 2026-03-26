@@ -34,7 +34,7 @@ async function safelyImport(filePath: string) {
     return fs.existsSync(filePath) && (await import(`file://${filePath}`)).default;
 }
 
-function safelyParse(filePath: string) {
+export function safelyParse(filePath: string) {
     return fs.existsSync(filePath) && JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
 
