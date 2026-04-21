@@ -63,15 +63,15 @@ export default class CommandManager {
     public static async lint(options: LintOptions, rootPath: string) {
         const visualManager = new VisualManager(rootPath);
         await visualManager.prepareVisual();
-        //await visualManager.runLintValidation(options);
+        await visualManager.runLintValidation(options);
     }
 
-    /*public static async package(options: PackageOptions, rootPath: string) {
+    public static async package(options: PackageOptions, rootPath: string) {
         if (!options.pbiviz && !options.resources) {
             ConsoleWriter.error('Nothing to build. Cannot use --no-pbiviz without --resources');
             process.exit(1);
         }
-        const webpackOptions: WebpackOptions = {
+        const viteOptions: ViteOptions = {
             devMode: false,
             generateResources: options.resources,
             generatePbiviz: options.pbiviz,
@@ -91,11 +91,11 @@ export default class CommandManager {
         }
         const visualManager = new VisualManager(rootPath)
         const visual = await visualManager.prepareVisual(options.pbivizFile)
-        //await visual.runLintValidation(lintOptions)
+        await visual.runLintValidation(lintOptions)
         await visual.validateVisual(options.verbose)
-        //await visual.initializeWebpack(webpackOptions)
-            //.then(manager => manager.generatePackage(options.verbose))
-    }*/
+        await visual.initializeVite(viteOptions)
+            .then(manager => manager.generatePackage(options.verbose))
+    }
 
     public static new({ force, template }: NewOptions, name: string, rootPath: string) {
         const generateOptions: GenerateOptions = {

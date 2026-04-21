@@ -7,6 +7,9 @@ import { Severity, Stage } from "./features/FeatureTypes.js";
 import { readJsonFromRoot, readJsonFromVisual } from "./utils.js";
 import { Visual } from "./Visual.js";
 import ViteWrap, { ViteOptions } from "./ViteWrap.js";
+import { LintValidator } from "./LintValidator.js";
+import { LintOptions } from "./CommandManager.js";
+import Package from "./Package.js";
 
 export interface GenerateOptions {
     force: boolean;
@@ -24,9 +27,10 @@ export default class VisualManager {
     public pbivizConfig;
     public capabilities;
     public visual: Visual;
+    private package: Package;
     public featureManager: FeatureManager
     public viteConfig: UserConfig;
-    public compiler: ViteDevServer;
+    public compiler: Awaited<ReturnType<typeof build>>;
     private devServer: ViteDevServer;
 
     constructor(rootPath: string) {
@@ -45,6 +49,19 @@ export default class VisualManager {
         return this;
     }
 
+    public async runLintValidation(options: LintOptions) {
+        try {
+            const linter = new LintValidator(options);
+            await linter.runLintValidation();
+        } catch (error) {
+            ConsoleWriter.error("Can't run lint validation.");
+            if (options.verbose) {
+                ConsoleWriter.error(error.message);
+            }
+        }
+    }
+
+
     public async createVisualInstance() {
         this.capabilities = await readJsonFromVisual("capabilities.json", this.basePath);
         this.visual = new Visual(this.capabilities, this.pbivizConfig);
@@ -52,12 +69,19 @@ export default class VisualManager {
 
     public async initializeVite(viteOptions: ViteOptions) {
         const viteWrap = new ViteWrap();
-        this.viteConfig = await viteWrap.generateViteConfig(this, viteOptions)
-
-        this.compiler = await createServer(this.viteConfig);
+        this.viteConfig = await viteWrap.generateViteConfig(this, viteOptions);
 
         return this;
     }
+
+    public async generatePackage(verbose: boolean = false) {
+        await build(this.viteConfig);
+
+        this.createPackageInstance();
+        const logs = this.validatePackage();
+        this.outputResults(logs, verbose);
+    }
+
 
     /**
      * Starts Vite server
@@ -104,7 +128,7 @@ export default class VisualManager {
     public validateVisual(verbose: boolean = false) {
         this.featureManager = new FeatureManager()
         const { status, logs } = this.featureManager.validate(Stage.PreBuild, this.visual);
-        this.outputValidationResults(logs, verbose);
+        this.outputResults(logs, verbose);
         if (status === Status.Error) {
             process.exit(1);
         }
@@ -113,9 +137,19 @@ export default class VisualManager {
     }
 
     /**
+     * Validates the visual package
+     */
+    public validatePackage() {
+        const featureManager = new FeatureManager();
+        const { logs } = featureManager.validate(Stage.PostBuild, this.package);
+
+        return logs;
+    }
+
+    /**
      * Outputs the results of the validation 
      */
-    public outputValidationResults({ errors, deprecation, warnings, info }: Logs, verbose: boolean) {
+    public outputResults({ errors, deprecation, warnings, info }: Logs, verbose: boolean) {
         const headerMessage = {
             error: `Visual doesn't support some features required for all custom visuals:`,
             deprecation: `Some features are going to be required soon, please update the visual:`,
@@ -200,5 +234,11 @@ export default class VisualManager {
             await this.devServer.close();
             this.devServer = null;
         }
+    }
+
+    private createPackageInstance() {
+        const pathToJSContent = path.join((this.pbivizConfig.build ?? globalConfig.build).dropFolder, "visual.js");
+        const sourceCode = fs.readFileSync(pathToJSContent, "utf8");
+        this.package = new Package(sourceCode, this.capabilities, this.visual.visualFeatureType);
     }
 }
