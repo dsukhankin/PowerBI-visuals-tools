@@ -102,13 +102,13 @@ export default class CommandManager {
             force: force,
             template: template
         };
-        //VisualManager.createVisual(rootPath, name, generateOptions)
+        VisualManager.createVisual(rootPath, name, generateOptions)
     }
 
     public static async info(rootPath: string) {
         const visualManager = new VisualManager(rootPath);
         await visualManager.prepareVisual();
-        //await visualManager.displayInfo();
+        await visualManager.displayInfo();
     }
 
     public static async installCert() {

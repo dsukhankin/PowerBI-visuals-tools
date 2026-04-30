@@ -13,6 +13,7 @@ const viteConfig: UserConfig = {
         lib: {
             entry: './src/visual.ts',
             name: 'visual',
+            // FIXME: Neither format loads correctly in PowerBI
             formats: ['iife'],
             fileName: () => 'visual.js',
         },

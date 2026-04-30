@@ -1,5 +1,6 @@
 import { createServer, build, ViteDevServer, UserConfig } from "vite";
 import fs from 'fs-extra';
+import childProcess from 'child_process';
 import path from 'path';
 import ConsoleWriter from "./ConsoleWriter.js";
 import { FeatureManager, Logs, Status } from "./FeatureManager.js";
@@ -10,6 +11,8 @@ import ViteWrap, { ViteOptions } from "./ViteWrap.js";
 import { LintValidator } from "./LintValidator.js";
 import { LintOptions } from "./CommandManager.js";
 import Package from "./Package.js";
+import TemplateFetcher from "./TemplateFetcher.js";
+import VisualGenerator from "./VisualGenerator.js";
 
 export interface GenerateOptions {
     force: boolean;
@@ -90,12 +93,11 @@ export default class VisualManager {
         ConsoleWriter.blank();
         ConsoleWriter.info('Starting server...');
         try {
-            // TODO
+            // TODO: This should be an option, but for now without it nothing works
             if (true) {
                 this.prepareDropFiles();
             }
 
-            // Use build in watch mode to produce bundled IIFE output
             const buildConfig = {
                 ...this.viteConfig,
                 build: {
@@ -105,6 +107,7 @@ export default class VisualManager {
             };
 
             // Start the watching build (produces output files on each change)
+            // FIXME: Watcher is never shutdown, but surprisingly it doesn't cause any issues
             const watcher = await build(buildConfig);
 
             // Start dev server to serve the compiled drop files
@@ -195,9 +198,67 @@ export default class VisualManager {
         ConsoleWriter.blank();
     }
 
+    /**
+     * Displays visual info
+     */
+    public displayInfo() {
+        if (this.pbivizConfig) {
+            ConsoleWriter.infoTable(this.pbivizConfig);
+        } else {
+            ConsoleWriter.error('Unable to load visual info. Please ensure the package is valid.');
+        }
+    }
+
+
+
+
+    /**
+     * Creates a new visual
+     */
+    static async createVisual(rootPath: string, visualName: string, generateOptions: GenerateOptions): Promise<VisualManager | void> {
+        ConsoleWriter.info('Creating new visual');
+        if (generateOptions.force) {
+            ConsoleWriter.warning('Running with force flag. Existing files will be overwritten');
+        }
+
+        try {
+            const config = await readJsonFromRoot('config.json');
+            if(config.visualTemplates[generateOptions.template]){
+                new TemplateFetcher( generateOptions.template, visualName, undefined )
+                    .fetch();
+                return;
+            }
+            const newVisualPath = await VisualGenerator.generateVisual(rootPath, visualName, generateOptions)
+            await VisualManager.installPackages(newVisualPath).then(() => ConsoleWriter.done('Visual creation complete'))
+
+            return new VisualManager(newVisualPath);
+        } catch (error) {
+            ConsoleWriter.error(['Unable to create visual.\n', error]);
+            process.exit(1);
+        }
+    }
+
+    /**
+     * Install npm dependencies for visual
+     */
+    static installPackages(visualPath: string): Promise<void> {
+        return new Promise(function (resolve, reject) {
+            ConsoleWriter.info('Installing packages...');
+            childProcess.exec(`npm install`, { cwd: visualPath },
+                (err) => {
+                    if (err) {
+                        reject(new Error('Package install failed.'));
+                    } else {
+                        ConsoleWriter.info('Installed packages.');
+                        resolve();
+                    }
+                });
+        });
+    }
+
     private prepareDropFiles() {
         const dropFolder = path.join(this.basePath, globalConfig.build.dropFolder);
-        const assets = ['visual.js', 'visual.css', 'pbiviz.json'];
+        const assets = ['visual.js', 'visual.css', 'pbiviz.json', 'status'];
         const headers = this.viteConfig.server?.headers as Record<string, string> ?? {};
 
         this.viteConfig.plugins = this.viteConfig.plugins ?? [];
@@ -230,6 +291,7 @@ export default class VisualManager {
     private async stopServer() {
         ConsoleWriter.blank();
         ConsoleWriter.info("Stopping server...");
+        // FIXME: Dev server doesn't close properly and needs to be closed from Task manager.
         if (this.devServer) {
             await this.devServer.close();
             this.devServer = null;
